@@ -128,7 +128,11 @@ pub fn rebuild_plan(m: &Manifest, afdo: PathBuf) -> Result<BuildPlan> {
 pub fn latest_profile() -> Option<PathBuf> {
     let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
     for e in std::fs::read_dir(paths::profiles_dir()).into_iter().flatten().flatten() {
-        let p = e.path().join("kernel.afdo");
+        // Recorded: <release>-<stamp>/kernel.afdo. Imported by hand: any *.afdo file.
+        let p = if e.path().is_dir() { e.path().join("kernel.afdo") } else { e.path() };
+        if p.extension().is_none_or(|x| x != "afdo") {
+            continue;
+        }
         let Ok(md) = std::fs::metadata(&p) else { continue };
         if md.len() == 0 {
             continue;

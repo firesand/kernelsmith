@@ -186,6 +186,14 @@ impl BuildPlan {
     }
 }
 
+/// With AutoFDO on and no profile chosen, use the newest recorded one.
+pub fn with_recorded_profile(mut plan: BuildPlan) -> BuildPlan {
+    if plan.profile_data.is_none() && plan.tweaks.get("autofdo").is_some_and(|v| v != "off") {
+        plan.profile_data = autofdo::latest_profile().map(|afdo| ProfileData { afdo, propeller_prefix: None });
+    }
+    plan
+}
+
 const ALL_DEFAULT_NAMES: [&str; 6] = ["gaming", "desktop", "creator", "workstation", "laptop", "server"];
 
 fn default_name(p: ProfileId) -> String {
@@ -409,7 +417,10 @@ pub fn check(plan: &BuildPlan, sys: &SystemInfo, src: Option<&KernelSource>) -> 
             out.push(f(Level::Info, format!("AutoFDO: compiling with the profile {}.", pd.afdo.display())));
         }
     } else if plan.tweaks.get("autofdo").is_some_and(|v| v != "off") {
-        out.push(f(Level::Info, "AutoFDO: no recorded profile yet, so this build only prepares for profiling (Library → Record a profile, then rebuild)."));
+        match autofdo::latest_profile() {
+            Some(p) => out.push(f(Level::Info, format!("AutoFDO: compiling with the newest recorded profile, {}.", p.display()))),
+            None => out.push(f(Level::Info, "AutoFDO: no recorded profile yet, so this build only prepares for profiling (Library → Record a profile, then rebuild). A profile recorded elsewhere can be dropped into ~/.local/share/kernelsmith/autofdo/<name>/kernel.afdo or passed with --afdo.")),
+        }
     }
     let signing = plan.tweaks.get("signing").map(String::as_str).unwrap_or("off");
     if signing != "off" && plan.install.install && !plan.install.module_rebuild && !sys.external_modules.is_empty() {

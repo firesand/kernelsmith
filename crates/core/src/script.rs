@@ -311,6 +311,17 @@ apply_patch() {{
             r#"
 # ── Module signing key (created once, reused by every build) ─────────────────
 SIGN_KEY={key}
+SIGN_CERT=
+# A key already configured for Portage (MODULES_SIGN_KEY in make.conf or an env file)
+# wins: one key per machine, or drivers signed for one kernel get refused by the other.
+if command -v portageq >/dev/null; then
+    PORTAGE_SIGN_KEY=$(portageq envvar MODULES_SIGN_KEY 2>/dev/null || true)
+    if [[ -n $PORTAGE_SIGN_KEY && -s $PORTAGE_SIGN_KEY ]]; then
+        SIGN_KEY=$PORTAGE_SIGN_KEY
+        SIGN_CERT=$(portageq envvar MODULES_SIGN_CERT 2>/dev/null || true)
+        note "Using the module signing key Portage already knows: $SIGN_KEY"
+    fi
+fi
 if [[ ! -s $SIGN_KEY ]]; then
     note "Creating the module signing key $SIGN_KEY"
     mkdir -p "$(dirname "$SIGN_KEY")"
@@ -326,7 +337,8 @@ if [[ ! -s $SIGN_KEY ]]; then
         chgrp portage "$SIGN_KEY" "${{SIGN_KEY%.pem}}.crt" && chmod 0640 "$SIGN_KEY" && chmod 0644 "${{SIGN_KEY%.pem}}.crt"
     fi
 fi
-[[ -s ${{SIGN_KEY%.pem}}.crt ]] || openssl x509 -in "$SIGN_KEY" -out "${{SIGN_KEY%.pem}}.crt"
+[[ -n $SIGN_CERT && -s $SIGN_CERT ]] || SIGN_CERT=${{SIGN_KEY%.pem}}.crt
+[[ -s $SIGN_CERT ]] || openssl x509 -in "$SIGN_KEY" -out "$SIGN_CERT"
 kconf --set-str MODULE_SIG_KEY "$SIGN_KEY"
 "${{MAKE[@]}}" -s olddefconfig
 SIGN_HASH=$(sed -n 's/^CONFIG_MODULE_SIG_HASH="\(.*\)"/\1/p' "$TREE/.config")
@@ -631,7 +643,7 @@ sign_modules() {
             *.xz)  plain=${ko%.xz};  xz -d "$ko" ;;
             *.gz)  plain=${ko%.gz};  gzip -d "$ko" ;;
         esac
-        "$TREE/scripts/sign-file" "$SIGN_HASH" "$SIGN_KEY" "$SIGN_KEY" "$plain"
+        "$TREE/scripts/sign-file" "$SIGN_HASH" "$SIGN_KEY" "$SIGN_CERT" "$plain"
         signed=$((signed + 1))
         case $ko in
             *.zst) zstd -q --rm -19 "$plain" ;;
@@ -656,16 +668,17 @@ fn portage_sign_snippet(sys: &SystemInfo) -> String {
     format!(
         r#"# ── Keep Portage signing rebuilt drivers with the Kernelsmith key ──────────
 if [[ -d /etc/portage && ( -d /etc/portage/package.use || ! -e /etc/portage/package.use ) ]]; then
-    mkdir -p /etc/portage/env /etc/portage/package.env /etc/portage/package.use "$STATE"
+    mkdir -p /etc/portage/env /etc/portage/package.env /etc/portage/package.use "$STATE/portage"
     cat > {env} <<KS_EOF
 # Written by Kernelsmith: sign out-of-tree modules with the Kernelsmith key (linux-mod-r1).
 MODULES_SIGN_KEY="$SIGN_KEY"
-MODULES_SIGN_CERT="${{SIGN_KEY%.pem}}.crt"
+MODULES_SIGN_CERT="$SIGN_CERT"
 MODULES_SIGN_HASH="$SIGN_HASH"
 KS_EOF
     printf '%s\n' {pkgenv} > {pkgenv_file}
     printf '%s\n' {pkguse} > {pkguse_file}
-    printf '%s\n' {env} {pkgenv_file} {pkguse_file} > "$STATE/signing.list"
+    # Listed like a Portage-mode integration, so Library → "Runtime tuning & Portage" can remove it.
+    printf '%s\n' {env} {pkgenv_file} {pkguse_file} > "$STATE/portage/signing.list"
     note "Portage will sign {n} driver package(s) with $SIGN_KEY on every rebuild"
 else
     warn "/etc/portage/package.use is a file; not adding USE=modules-sign for your driver packages"
@@ -842,6 +855,8 @@ mod tests {
             "kconf --set-str MODULE_SIG_KEY",
             "scripts/sign-file",
             "sign_modules \"/lib/modules/$REL\"",
+            "portageq envvar MODULES_SIGN_KEY",
+            "$STATE/portage/signing.list",
             "/etc/portage/env/kernelsmith-modules-sign.conf",
             "x11-drivers/nvidia-drivers modules-sign",
             "41_kernelsmith-eac-$REL",

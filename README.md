@@ -130,7 +130,9 @@ the newest kernel the default). Your previous kernel stays installed as a fallba
   same key. The key is created once in `/etc/kernelsmith/keys/modules-signing.pem` (root, readable
   by the `portage` group) and reused by every build; `/etc/portage/env/kernelsmith-modules-sign.conf`
   plus a `package.env`/`package.use` entry per driver package keep Portage signing them on later
-  rebuilds. *Sign and enforce* additionally sets `MODULE_SIG_FORCE`, so unsigned modules never load.
+  rebuilds. If Portage already has a `MODULES_SIGN_KEY` (make.conf or an env file), that key is
+  used instead, so one machine never ends up with two signing keys. *Sign and enforce* additionally
+  sets `MODULE_SIG_FORCE`, so unsigned modules never load.
   (`modinfo -F signer` only shows the signer when `sys-apps/kmod` has `USE=pkcs7`.)
 - **Anti-cheat readiness** — builds in what Easy Anti-Cheat Linux v2 checks on the machine
   (lockdown LSM armed early, BPF LSM, `lsm=` order, IOMMU with DMA translation, TPM 2.0 drivers,

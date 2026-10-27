@@ -56,6 +56,9 @@ pub fn module_list(sys: &SystemInfo, use_db: bool) -> Vec<String> {
 }
 
 pub fn prepare_build(plan: &BuildPlan, sys: &SystemInfo, src: &KernelSource, symbols: Option<&SymbolIndex>) -> Result<PreparedJob> {
+    // AutoFDO is usually switched on after the plan was created; pick up the
+    // newest recorded profile now, when the choices are final.
+    let plan = &plan::with_recorded_profile(plan.clone());
     let dir = new_job_dir(&plan.name)?;
     plan.save(&dir.join("plan.toml"))?;
 

@@ -1023,7 +1023,7 @@ impl App {
                     kv(ui, "Source", format!("{} ({})", src.display(), src.flavor.label()));
                     let pr = profiles::get(plan.profile);
                     kv(ui, "Profile", format!("{} {}", pr.icon, pr.title));
-                    kv(ui, "Start from", plan.seed.label());
+                    kv(ui, "Start from", plan::resolve_seed(plan, sys, src).label);
                     kv(ui, "Drivers", format!("{} — keeping {} famil{}", plan.slim.label(), plan.keep.len(), if plan.keep.len() == 1 { "y" } else { "ies" }));
                     kv(ui, "Compiler", format!("{} · LTO {} · {}", sel("compiler"), sel("lto"), sel("optimize")));
                     kv(ui, "CPU target", sel("march"));
@@ -1085,7 +1085,16 @@ impl App {
         ui.add_space(10.0);
         ui.horizontal(|ui| {
             if button(ui, "View build script", Btn::Secondary).clicked() {
-                let body = script::generate(&ScriptInputs { plan, sys, src, resolved: &resolved, job_dir: &paths::jobs_dir().join("<job>") });
+                let seed = plan::resolve_seed(plan, sys, src);
+                let body = script::generate(&ScriptInputs {
+                    plan,
+                    sys,
+                    src,
+                    resolved: &resolved,
+                    job_dir: &paths::jobs_dir().join("<job>"),
+                    seed_label: &seed.label,
+                    store_seed: seed.untrimmed && plan.seed != Seed::Defconfig,
+                });
                 self.modal = Some(Modal::Script { title: "Build script (runs as root)".into(), text: body });
             }
             if button(ui, "Save as preset…", Btn::Secondary).clicked() {

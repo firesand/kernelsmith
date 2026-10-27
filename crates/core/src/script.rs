@@ -66,6 +66,10 @@ pub struct ScriptInputs<'a> {
     pub resolved: &'a Resolved,
     /// Directory holding seed.config, modules.lst, patches/, plan.toml.
     pub job_dir: &'a Path,
+    /// What the seed really is (see `plan::resolve_seed`).
+    pub seed_label: &'a str,
+    /// Keep the (untrimmed) seed with the kernel for builds on top of it.
+    pub store_seed: bool,
 }
 
 fn expect_token(op: &Op) -> String {
@@ -103,7 +107,7 @@ fn config_calls(ops: &[Op]) -> String {
 }
 
 pub fn generate(inp: &ScriptInputs) -> String {
-    let ScriptInputs { plan, sys, src, resolved, job_dir } = inp;
+    let ScriptInputs { plan, sys, src, resolved, job_dir, seed_label, store_seed } = inp;
     let job = job_dir.display().to_string();
     let profile = profiles::get(plan.profile);
     let clang = plan.tweaks.get("compiler").map(String::as_str) == Some("clang");
@@ -248,10 +252,15 @@ note "Copying the source to $TREE (instant on btrfs/xfs thanks to reflinks)"
 TREE_CREATED=1
 cp -a --reflink=auto "$SRC" "$TREE"
 mkdir -p "$TREE/.kernelsmith"
-cp "$JOB/plan.toml" "$TREE/.kernelsmith/plan.toml"
+cp "$JOB/plan.toml" "$TREE/.kernelsmith/plan.toml"{store_seed}
 note "Cleaning the copy (make mrproper)"
 "${{MAKE[@]}}" -s mrproper
-rm -f "$TREE"/localversion*"#
+rm -f "$TREE"/localversion*"#,
+        store_seed = if *store_seed {
+            "\n# The untrimmed base configuration: a kernel built on top of this one starts from it,\n# not from this kernel's trimmed config.\ncp \"$JOB/seed.config\" \"$TREE/.kernelsmith/seed.config\""
+        } else {
+            ""
+        },
     );
 
     // ── Patches ──
@@ -281,9 +290,9 @@ apply_patch() {{
         Seed::Defconfig => r#"note "Starting from upstream defaults (make defconfig)"
 "${MAKE[@]}" -s defconfig"#
             .to_string(),
-        other => format!(
+        _ => format!(
             "note {}\ncp \"$JOB/seed.config\" \"$TREE/.config\"",
-            q(&format!("Starting from: {}", other.label()))
+            q(&format!("Starting from: {seed_label}"))
         ),
     };
     let mut apply = String::from("apply_choices() {\n");
@@ -829,8 +838,9 @@ mod tests {
         let plan = full_plan(&sys);
         let resolved = plan::resolve(&plan, &sys, &src, None);
         assert_eq!(resolved.release, "7.3.0-gentoo-ks-gaming");
-        let s = generate(&ScriptInputs { plan: &plan, sys: &sys, src: &src, resolved: &resolved, job_dir: Path::new("/tmp/job") });
+        let s = generate(&ScriptInputs { plan: &plan, sys: &sys, src: &src, resolved: &resolved, job_dir: Path::new("/tmp/job"), seed_label: "Your current kernel's configuration", store_seed: true });
         bash_ok(&s);
+        assert!(s.contains("cp \"$JOB/seed.config\" \"$TREE/.kernelsmith/seed.config\""));
         for needle in [
             "set -Eeuo pipefail",
             "LLVM=1",
@@ -886,7 +896,7 @@ KS_EOF
         let src = source();
         let plan = full_plan(&sys);
         let resolved = plan::resolve(&plan, &sys, &src, None);
-        let s = generate(&ScriptInputs { plan: &plan, sys: &sys, src: &src, resolved: &resolved, job_dir: Path::new("/tmp/job") });
+        let s = generate(&ScriptInputs { plan: &plan, sys: &sys, src: &src, resolved: &resolved, job_dir: Path::new("/tmp/job"), seed_label: "x", store_seed: false });
         let start = s.find("boot_snapshot() {").expect("snapshot function");
         let end = start + s[start..].find("\n}\n").expect("function end") + 3;
         let func = &s[start..end];
@@ -907,8 +917,9 @@ KS_EOF
         plan.install.install = false;
         plan.build_root = Some(PathBuf::from("/tmp/ks-builds"));
         let resolved = plan::resolve(&plan, &sys, &src, None);
-        let s = generate(&ScriptInputs { plan: &plan, sys: &sys, src: &src, resolved: &resolved, job_dir: Path::new("/tmp/job") });
+        let s = generate(&ScriptInputs { plan: &plan, sys: &sys, src: &src, resolved: &resolved, job_dir: Path::new("/tmp/job"), seed_label: "x", store_seed: false });
         bash_ok(&s);
+        assert!(!s.contains(".kernelsmith/seed.config"));
         assert!(!s.contains("modules_install"));
         assert!(!s.contains("EUID -eq 0 ]] || fail"));
         assert!(s.contains("TREE=/tmp/ks-builds/linux-7.3.0-gentoo-ks-server"));
@@ -925,7 +936,7 @@ KS_EOF
         plan.tweaks.insert("signing".into(), "off".into());
         plan.tweaks.insert("anticheat".into(), "off".into());
         let resolved = plan::resolve(&plan, &sys, &src, None);
-        let s = generate(&ScriptInputs { plan: &plan, sys: &sys, src: &src, resolved: &resolved, job_dir: Path::new("/tmp/job") });
+        let s = generate(&ScriptInputs { plan: &plan, sys: &sys, src: &src, resolved: &resolved, job_dir: Path::new("/tmp/job"), seed_label: "x", store_seed: false });
         bash_ok(&s);
         for needle in ["SIGN_KEY=", "sign_modules", "kernelsmith-modules-sign", "41_kernelsmith-eac"] {
             assert!(!s.contains(needle), "script should not contain {needle}");

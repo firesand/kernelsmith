@@ -162,6 +162,13 @@ drops because nothing had loaded them yet.
   kernelsmith build --preset ~/.config/kernelsmith/presets/gaming.toml --latest
   ```
 
+- **Building on top of a Kernelsmith kernel**: a trimmed kernel's own config is a poor base, because
+  every driver the earlier build dropped would stay dropped whatever you tick. Each build therefore
+  keeps the untrimmed configuration it started from in `/usr/src/linux-<release>/.kernelsmith/seed.config`,
+  and "Your current kernel" uses that stored base automatically when the running kernel is a
+  Kernelsmith build (or, for kernels built before this existed, the newest untrimmed seed of any
+  earlier job). The Review step warns when the base is still a trimmed config; `kernelsmith plan --seed FILE`
+  (or `running` / `tree` / `defconfig`) picks the base from the command line.
 - **Portage mode** (Install step → *Export to Portage…*): your choices become a config fragment
   merged by `kernel-build.eclass`, so `gentoo-kernel` / `cachyos-kernel` / `vanilla-kernel` are
   rebuilt with them on every update. Remove it from Library → *Runtime tuning & Portage*.
@@ -186,7 +193,7 @@ drops because nothing had loaded them yet.
 | `~/.local/share/kernelsmith/patches/` | Your own patches (also `/etc/kernelsmith/patches/`) |
 | `~/.local/share/kernelsmith/autofdo/` | Recorded AutoFDO profiles |
 | `~/.cache/kernelsmith/` | Downloaded patches and cached patch listings |
-| `/usr/src/linux-<release>/.kernelsmith/` | The plan, final config, applied patches and logs of that build |
+| `/usr/src/linux-<release>/.kernelsmith/` | The plan, final config, untrimmed seed config, applied patches and logs of that build |
 | `/var/lib/kernelsmith/kernels/<release>.toml` | Install manifest used for uninstall |
 | `/etc/sysctl.d/90-kernelsmith.conf`, `/etc/udev/rules.d/60-kernelsmith-ioschedulers.rules` | Runtime tuning pack |
 | `/etc/kernel/config.d/60-kernelsmith-<name>.config` | Portage mode fragment |

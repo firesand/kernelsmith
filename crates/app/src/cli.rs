@@ -4,7 +4,7 @@ use crate::runner::{parse_line, Event};
 use anyhow::{bail, Context, Result};
 use kernelsmith_core::hw::{self, SystemInfo};
 use kernelsmith_core::kconfig::scan_symbols;
-use kernelsmith_core::plan::{self, BuildPlan, Level};
+use kernelsmith_core::plan::{self, BuildPlan, Level, Seed};
 use kernelsmith_core::profiles::{self, ProfileId};
 use kernelsmith_core::slim::SlimMode;
 use kernelsmith_core::sources::{self, KernelSource};
@@ -39,6 +39,7 @@ OPTIONS for plan/build:
     --slim MODE         off | balanced | aggressive
     --no-install        Only build; don't install
     --build-root DIR    Put the build tree in DIR instead of /usr/src (build-only)
+    --seed FILE         Base configuration: a .config file, or running | tree | defconfig
     --afdo FILE         Compile with this AutoFDO profile (kernel.afdo)
     --no-afdo           Don't reuse a previously recorded profile
     --print             Print the generated script
@@ -61,6 +62,7 @@ struct Opts {
     patch_files: Vec<PathBuf>,
     afdo: Option<PathBuf>,
     no_afdo: bool,
+    seed: Option<String>,
 }
 
 fn parse_opts(args: &[String]) -> Result<Opts> {
@@ -80,6 +82,7 @@ fn parse_opts(args: &[String]) -> Result<Opts> {
         patch_files: vec![],
         afdo: None,
         no_afdo: false,
+        seed: None,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -119,6 +122,7 @@ fn parse_opts(args: &[String]) -> Result<Opts> {
             "--patch-file" => o.patch_files.push(val()?.into()),
             "--afdo" => o.afdo = Some(val()?.into()),
             "--no-afdo" => o.no_afdo = true,
+            "--seed" => o.seed = Some(val()?),
             other => bail!("unknown option {other}\n\n{USAGE}"),
         }
     }
@@ -229,6 +233,14 @@ fn make_plan(o: &Opts, sys: &SystemInfo) -> Result<(BuildPlan, KernelSource)> {
         plan.install.runtime_tuning = false;
     }
     plan.build_root = o.build_root.clone();
+    if let Some(s) = &o.seed {
+        plan.seed = match s.as_str() {
+            "running" => Seed::Running,
+            "tree" => Seed::TreeConfig,
+            "defconfig" => Seed::Defconfig,
+            file => Seed::File(PathBuf::from(file)),
+        };
+    }
     if o.no_afdo {
         plan.profile_data = None;
     }

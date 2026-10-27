@@ -62,15 +62,17 @@ pub fn prepare_build(plan: &BuildPlan, sys: &SystemInfo, src: &KernelSource, sym
     let dir = new_job_dir(&plan.name)?;
     plan.save(&dir.join("plan.toml"))?;
 
-    match &plan.seed {
-        Seed::Running => std::fs::write(dir.join("seed.config"), kconfig::running_config_text()?)?,
-        Seed::TreeConfig => {
-            std::fs::copy(src.path.join(".config"), dir.join("seed.config")).context("copying the tree's .config")?;
-        }
-        Seed::File(p) => {
+    let seed = plan::resolve_seed(plan, sys, src);
+    match (&seed.path, &seed.text) {
+        (Some(p), _) => {
             std::fs::copy(p, dir.join("seed.config")).with_context(|| format!("copying {}", p.display()))?;
         }
-        Seed::Defconfig => {}
+        (None, Some(t)) => std::fs::write(dir.join("seed.config"), t)?,
+        // "Running" without a readable /proc/config.gz: surface that error here.
+        (None, None) if plan.seed != Seed::Defconfig => {
+            std::fs::write(dir.join("seed.config"), kconfig::running_config_text()?)?;
+        }
+        _ => {}
     }
     if plan.slim != SlimMode::Off {
         let mut list = module_list(sys, plan.use_modprobed_db).join("\n");
@@ -87,7 +89,15 @@ pub fn prepare_build(plan: &BuildPlan, sys: &SystemInfo, src: &KernelSource, sym
     }
 
     let resolved = plan::resolve(plan, sys, src, symbols);
-    let body = script::generate(&ScriptInputs { plan, sys, src, resolved: &resolved, job_dir: &dir });
+    let body = script::generate(&ScriptInputs {
+        plan,
+        sys,
+        src,
+        resolved: &resolved,
+        job_dir: &dir,
+        seed_label: &seed.label,
+        store_seed: seed.untrimmed && plan.seed != Seed::Defconfig,
+    });
     let script = dir.join("build.sh");
     write_script(&script, &body)?;
     Ok(PreparedJob {

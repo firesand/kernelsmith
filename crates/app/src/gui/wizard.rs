@@ -1030,7 +1030,15 @@ impl App {
                     kv(ui, "Scheduler", format!("{} · sched_ext {}", sel("scheduler"), sel("sched_ext")));
                     kv(ui, "Timer", format!("{} · {} preemption", sel("hz"), sel("preempt")));
                     kv(ui, "Gaming", format!("NTSYNC {} · controllers {}", sel("ntsync"), sel("gaming_input")));
-                    kv(ui, "AutoFDO", if plan.profile_data.is_some() { "Rebuilding with your recorded profile".to_string() } else { sel("autofdo") });
+                    kv(
+                        ui,
+                        "AutoFDO",
+                        match &plan.profile_data {
+                            Some(pd) => format!("Compiling with profile {}", pd.afdo.display()),
+                            None => sel("autofdo"),
+                        },
+                    );
+                    kv(ui, "Security", format!("signing {} · anti-cheat {}", sel("signing"), sel("anticheat")));
                     let patch_names: Vec<&str> = plan.patches.iter().map(|p| p.title.as_str()).collect();
                     kv(ui, "Patches", if patch_names.is_empty() { "None".into() } else { patch_names.join(", ") });
                     kv(

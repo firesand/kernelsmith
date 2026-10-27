@@ -39,6 +39,8 @@ OPTIONS for plan/build:
     --slim MODE         off | balanced | aggressive
     --no-install        Only build; don't install
     --build-root DIR    Put the build tree in DIR instead of /usr/src (build-only)
+    --afdo FILE         Compile with this AutoFDO profile (kernel.afdo)
+    --no-afdo           Don't reuse a previously recorded profile
     --print             Print the generated script
     --save FILE         Save the resulting plan as a preset
 ";
@@ -57,6 +59,8 @@ struct Opts {
     save: Option<PathBuf>,
     patches: Vec<String>,
     patch_files: Vec<PathBuf>,
+    afdo: Option<PathBuf>,
+    no_afdo: bool,
 }
 
 fn parse_opts(args: &[String]) -> Result<Opts> {
@@ -74,6 +78,8 @@ fn parse_opts(args: &[String]) -> Result<Opts> {
         save: None,
         patches: vec![],
         patch_files: vec![],
+        afdo: None,
+        no_afdo: false,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -111,6 +117,8 @@ fn parse_opts(args: &[String]) -> Result<Opts> {
             "--save" => o.save = Some(val()?.into()),
             "--patch" => o.patches.push(val()?),
             "--patch-file" => o.patch_files.push(val()?.into()),
+            "--afdo" => o.afdo = Some(val()?.into()),
+            "--no-afdo" => o.no_afdo = true,
             other => bail!("unknown option {other}\n\n{USAGE}"),
         }
     }
@@ -221,6 +229,12 @@ fn make_plan(o: &Opts, sys: &SystemInfo) -> Result<(BuildPlan, KernelSource)> {
         plan.install.runtime_tuning = false;
     }
     plan.build_root = o.build_root.clone();
+    if o.no_afdo {
+        plan.profile_data = None;
+    }
+    if let Some(afdo) = &o.afdo {
+        plan.profile_data = Some(kernelsmith_core::plan::ProfileData { afdo: afdo.clone(), propeller_prefix: None });
+    }
     let fetcher = Fetcher::default();
     for id in &o.patches {
         let info = patches::find(id).with_context(|| format!("unknown patch '{id}'"))?;

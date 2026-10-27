@@ -2,7 +2,8 @@
 //! preset, validated, turned into a script, and re-used for the next kernel
 //! version.
 
-use crate::hw::{Initramfs, InitSystem, SystemInfo};
+use crate::autofdo;
+use crate::hw::{Bootloader, Initramfs, InitSystem, SystemInfo};
 use crate::kconfig::{KConfig, SymbolIndex};
 use crate::patches::{self, PlannedPatch};
 use crate::profiles::{self, ProfileId};
@@ -105,6 +106,13 @@ impl BuildPlan {
     pub fn new(sys: &SystemInfo, profile: ProfileId, source: &KernelSource) -> Self {
         let p = profiles::get(profile);
         let has_modules = !sys.external_modules.is_empty();
+        let tweaks = profiles::defaults(profile, sys);
+        // A profile recorded earlier is worth more than a fresh "profile-ready" build.
+        let profile_data = if tweaks.get("autofdo").is_some_and(|v| v != "off") {
+            autofdo::latest_profile().map(|afdo| ProfileData { afdo, propeller_prefix: None })
+        } else {
+            None
+        };
         BuildPlan {
             format: PLAN_FORMAT,
             name: default_name(profile),
@@ -115,10 +123,10 @@ impl BuildPlan {
             keep: slim::default_keep(sys, profile, p.slim),
             use_modprobed_db: sys.modprobed_db.is_some(),
             inits: vec![sys.init],
-            tweaks: profiles::defaults(profile, sys),
+            tweaks,
             patches: vec![],
             install: InstallOpts { module_rebuild: has_modules, preserve_old_modules: has_modules, ..Default::default() },
-            profile_data: None,
+            profile_data,
             jobs: sys.cpu.threads,
             build_root: None,
         }
@@ -395,6 +403,28 @@ pub fn check(plan: &BuildPlan, sys: &SystemInfo, src: Option<&KernelSource>) -> 
     if let Some(pd) = &plan.profile_data {
         if !pd.afdo.is_file() {
             out.push(f(Level::Error, format!("AutoFDO profile {} not found.", pd.afdo.display())));
+        } else if plan.tweaks.get("autofdo").map(String::as_str) == Some("off") {
+            out.push(f(Level::Warn, "An AutoFDO profile is set but the AutoFDO option is off; the profile will not be used."));
+        } else {
+            out.push(f(Level::Info, format!("AutoFDO: compiling with the profile {}.", pd.afdo.display())));
+        }
+    } else if plan.tweaks.get("autofdo").is_some_and(|v| v != "off") {
+        out.push(f(Level::Info, "AutoFDO: no recorded profile yet, so this build only prepares for profiling (Library → Record a profile, then rebuild)."));
+    }
+    let signing = plan.tweaks.get("signing").map(String::as_str).unwrap_or("off");
+    if signing != "off" && plan.install.install && !plan.install.module_rebuild && !sys.external_modules.is_empty() {
+        out.push(f(Level::Warn, "Module signing is on but 'Rebuild driver modules' is off: existing out-of-tree modules stay unsigned."));
+    }
+    if plan.tweaks.get("anticheat").map(String::as_str) == Some("ready") {
+        if sys.boot.bootloader != Bootloader::Grub {
+            out.push(f(Level::Warn, format!(
+                "The anti-cheat boot entry is only generated for GRUB. Add an entry for this kernel by hand with these options: {}",
+                tweaks::eac_cmdline(sys)
+            )));
+        }
+        out.push(f(Level::Info, "Anti-cheat readiness covers everything EAC checks on the machine; Epic additionally requires a kernel signed by a key on its well-known list, which a self-built kernel never is."));
+        if sys.boot.secure_boot != Some(true) {
+            out.push(f(Level::Info, "Secure Boot is off; EAC v2 also needs it enabled (with the kernel signed for it)."));
         }
     }
     let est = estimate(plan, sys);

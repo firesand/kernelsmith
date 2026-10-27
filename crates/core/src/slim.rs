@@ -176,7 +176,7 @@ pub fn categories() -> Vec<KeepCategory> {
             ],
             ops: |s| {
                 let mut v = vec![
-                    atm("KVM"), atm("VFIO"), atm("VFIO_PCI"), atm("VHOST_NET"), atm("VHOST_VSOCK"), atm("TUN"), atm("BRIDGE"),
+                    atm("KVM"), atm("VFIO"), atm("VFIO_PCI"), atm("VHOST_NET"), atm("VSOCKETS"), atm("VHOST_VSOCK"), atm("TUN"), atm("BRIDGE"),
                     atm("VETH"), atm("OVERLAY_FS"), atm("BRIDGE_NETFILTER"), atm("MACVLAN"), atm("MACVTAP"), atm("IPVLAN"),
                     atm("VXLAN"), atm("TAP"),
                 ];
@@ -191,7 +191,14 @@ pub fn categories() -> Vec<KeepCategory> {
             title: "Docks, Thunderbolt & USB-C",
             desc: "Thunderbolt/USB4 docks, USB-C displays and dock network adapters.",
             lmc_paths: &["drivers/thunderbolt", "drivers/usb/typec"],
-            ops: |_| vec![atm("USB4"), atm("TYPEC"), atm("USB_RTL8152"), atm("USB_NET_AX88179_178A"), atm("USB_NET_CDC_NCM")],
+            // USB_NET_DRIVERS/USB_USBNET are the gates the dock NIC drivers depend on;
+            // without them localmodconfig leaves the three requests unsatisfiable.
+            ops: |_| {
+                vec![
+                    atm("USB4"), atm("TYPEC"), atm("USB_NET_DRIVERS"), atm("USB_USBNET"), atm("USB_RTL8152"),
+                    atm("USB_NET_AX88179_178A"), atm("USB_NET_CDC_NCM"),
+                ]
+            },
             default_on: |s, p| s.is_laptop() || p == ProfileId::Laptop || s.loaded_modules.iter().any(|m| m == "thunderbolt"),
         },
         KeepCategory {

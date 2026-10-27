@@ -182,7 +182,7 @@ for f in \
 {files}    ; do
     # Only ever touch boot files that carry this kernel's exact name.
     case "$f" in
-        /boot/*|/efi/*)
+        /boot/*|/efi/*|/etc/grub.d/*)
             if [[ $f == *"$REL"* && ( -f $f || -L $f ) ]]; then
                 rm -f -- "$f"
                 note "Removed $f"
